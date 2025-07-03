@@ -111,6 +111,20 @@ export interface CommonOptions {
    * resolution mechanism will be used.
    */
   prettierConfigFile?: string;
+  /**
+   * defaults to undefined
+   * Output file for shared types (schemas, enums).
+   * If specified, types will be generated separately from endpoints to avoid duplication.
+   */
+  typeFile?: string;
+  /**
+   * defaults to false
+   * Include extra models that aren't referenced by endpoints.
+   * - `true` includes all unreferenced models
+   * - `string[]` includes only specified model names
+   * - `false` includes only models used by endpoints (default behavior)
+   */
+  extraModels?: boolean | string[];
 }
 
 export type TextMatcher = string | RegExp | (string | RegExp)[];

@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import { createRequire } from 'node:module';
 import path from 'node:path';
-import { generateApi } from './generate';
+import { generateApi, generateTypes } from './generate';
 import type { CommonOptions, ConfigFile, GenerationOptions, OutputFileOptions } from './types';
 import { isValidUrl, prettify } from './utils';
 export type { ConfigFile } from './types';
@@ -15,10 +15,35 @@ export async function generateEndpoints(options: GenerationOptions): Promise<str
     ? options.schemaFile
     : path.resolve(process.cwd(), schemaLocation);
 
+  // Generate type file if specified
+  const { typeFile, prettierConfigFile } = options;
+  if (typeFile) {
+    const { typeDeclarations } = await enforceOazapftsTsVersion(async () => {
+      return generateTypes(schemaAbsPath, options);
+    });
+
+    // Create a source file for types
+    const resultFile = await import('typescript').then((ts) => {
+      const factory = ts.factory;
+      const printer = ts.createPrinter({ newLine: ts.NewLineKind.LineFeed });
+      const sourceFile = ts.createSourceFile('types.ts', '', ts.ScriptTarget.Latest, false, ts.ScriptKind.TS);
+
+      const typeSourceFile = factory.createSourceFile(
+        typeDeclarations as any,
+        factory.createToken(ts.SyntaxKind.EndOfFileToken),
+        ts.NodeFlags.None
+      );
+
+      return printer.printNode(ts.EmitHint.Unspecified, typeSourceFile, sourceFile);
+    });
+
+    fs.writeFileSync(path.resolve(process.cwd(), typeFile), await prettify(typeFile, resultFile, prettierConfigFile));
+  }
+
   const sourceCode = await enforceOazapftsTsVersion(async () => {
     return generateApi(schemaAbsPath, options);
   });
-  const { outputFile, prettierConfigFile } = options;
+  const { outputFile } = options;
   if (outputFile) {
     fs.writeFileSync(
       path.resolve(process.cwd(), outputFile),

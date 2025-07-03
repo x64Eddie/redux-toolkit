@@ -1,6 +1,6 @@
 {
-  "name": "@rtk-query/codegen-openapi",
-  "version": "2.0.0",
+  "name": "@x64Eddie/rtk-query-codegen-openapi",
+  "version": "2.0.1",
   "main": "lib/index.js",
   "types": "lib/index.d.ts",
   "module": "lib/index.mjs",
@@ -22,19 +22,21 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/reduxjs/redux-toolkit.git"
+    "url": "git+https://github.com/x64Eddie/redux-toolkit.git"
   },
   "bugs": {
-    "url": "https://github.com/reduxjs/redux-toolkit/issues"
+    "url": "https://github.com/x64Eddie/redux-toolkit/issues"
   },
   "homepage": "https://redux-toolkit.js.org",
-  "bin": {
-    "rtk-query-codegen-openapi": "lib/bin/cli.mjs"
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com",
+    "access": "public"
   },
+  "bin": "lib/bin/cli.mjs",
   "scripts": {
-    "build": "yarn clean && tsup && chmod +x lib/bin/cli.mjs",
+    "build": "npm run clean && tsup && chmod +x lib/bin/cli.mjs",
     "clean": "rimraf lib",
-    "prepack": "yarn build && chmod +x lib/bin/cli.mjs",
+    "prepack": "npm run build && chmod +x lib/bin/cli.mjs",
     "format": "prettier --write \"src/**/*.ts\"",
     "test:update": "vitest --run --update",
     "test:update:enum": "lib/bin/cli.mjs test/config.example.enum.ts",

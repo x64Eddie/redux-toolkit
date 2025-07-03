@@ -30,6 +30,17 @@ import { factory } from './utils/factory';
 const generatedApiName = 'injectedRtkApi';
 const v3DocCache: Record<string, OpenAPIV3.Document> = {};
 
+// Helper to create qualified type references when using separate type file
+function createTypeReference(typeName: string | ts.EntityName, useTypeFile: boolean): ts.EntityName {
+  if (!useTypeFile) {
+    return typeof typeName === 'string' ? factory.createIdentifier(typeName) : typeName;
+  }
+  return factory.createQualifiedName(
+    factory.createIdentifier('Types'),
+    typeof typeName === 'string' ? factory.createIdentifier(typeName) : typeName as ts.Identifier
+  );
+}
+
 function defaultIsDataResponse(code: string, includeDefault: boolean) {
   if (includeDefault && code === 'default') {
     return true;
@@ -117,6 +128,8 @@ export async function generateApi(
     useEnumType = false,
     mergeReadWriteOnly = false,
     httpResolverOptions,
+    typeFile,
+    extraModels = false,
   }: GenerationOptions
 ) {
   const v3Doc = (v3DocCache[spec] ??= await getV3Doc(spec, httpResolverOptions));
@@ -163,11 +176,39 @@ export async function generateApi(
   }
   apiFile = apiFile.replace(/\.[jt]sx?$/, '');
 
+  // Handle typeFile path resolution
+  let resolvedTypeFile: string | undefined;
+  if (typeFile && outputFile) {
+    resolvedTypeFile = path.resolve(process.cwd(), typeFile);
+    // Calculate relative import path from outputFile to typeFile
+    const relativeTypeImport = path.relative(path.dirname(outputFile), resolvedTypeFile);
+    const typeImportPath = relativeTypeImport.replace(/\\/g, '/').replace(/\.[jt]sx?$/, '');
+    resolvedTypeFile = (typeImportPath.startsWith('.') ? typeImportPath : `./${typeImportPath}`);
+  }
+
+  // Separate types from endpoint-specific interfaces  
+  const endpointInterfaces = Object.values(interfaces);
+  const typeDeclarations = typeFile ? [] : [...apiGen.aliases, ...apiGen.enumAliases];
+  
+  // Generate type import if using separate type file
+  const typeImports = typeFile && resolvedTypeFile
+    ? [factory.createImportDeclaration(
+        undefined,
+        factory.createImportClause(
+          false,
+          undefined,
+          factory.createNamespaceImport(factory.createIdentifier('Types'))
+        ),
+        factory.createStringLiteral(resolvedTypeFile)
+      )]
+    : [];
+
   return printer.printNode(
     ts.EmitHint.Unspecified,
     factory.createSourceFile(
       [
         generateImportNode(apiFile, { [apiImport]: 'api' }),
+        ...typeImports,
         ...(tag ? [generateTagTypes({ addTagTypes: extractAllTagTypes({ operationDefinitions }) })] : []),
         generateCreateApiCall({
           tag,
@@ -192,9 +233,8 @@ export async function generateApi(
           ]),
           undefined
         ),
-        ...Object.values(interfaces),
-        ...apiGen.aliases,
-        ...apiGen.enumAliases,
+        ...endpointInterfaces,
+        ...typeDeclarations,
         ...(hooks
           ? [
               generateReactHooks({
@@ -579,3 +619,56 @@ type QueryArgDefinition = {
     }
 );
 type QueryArgDefinitions = Record<string, QueryArgDefinition>;
+
+export async function generateTypes(
+  spec: string,
+  {
+    unionUndefined,
+    useEnumType = false,
+    mergeReadWriteOnly = false,
+    httpResolverOptions,
+    extraModels = false,
+  }: Pick<GenerationOptions, 'unionUndefined' | 'useEnumType' | 'mergeReadWriteOnly' | 'httpResolverOptions' | 'extraModels'>
+): Promise<{
+  typeDeclarations: ts.Declaration[];
+  typeImports: ts.ImportDeclaration[];
+}> {
+  const v3Doc = (v3DocCache[spec] ??= await getV3Doc(spec, httpResolverOptions));
+
+  const apiGen = new ApiGenerator(v3Doc, {
+    unionUndefined,
+    useEnumType,
+    mergeReadWriteOnly,
+  });
+
+  // Process all components/schemas
+  if (apiGen.spec.components?.schemas) {
+    apiGen.preprocessComponents(apiGen.spec.components.schemas);
+  }
+
+  // Collect all schema types
+  const allSchemas = apiGen.spec.components?.schemas || {};
+  const schemaNames = Object.keys(allSchemas);
+
+  // If extraModels is enabled, process all schemas
+  if (extraModels === true || (Array.isArray(extraModels) && extraModels.length > 0)) {
+    const schemasToProcess = 
+      extraModels === true 
+        ? schemaNames 
+        : schemaNames.filter(name => extraModels.includes(name));
+    
+    // Ensure all requested schemas are processed
+    for (const schemaName of schemasToProcess) {
+      const schema = allSchemas[schemaName];
+      if (schema) {
+        // Force type generation for this schema
+        apiGen.getTypeFromSchema(schema);
+      }
+    }
+  }
+
+  return {
+    typeDeclarations: [...apiGen.aliases, ...apiGen.enumAliases],
+    typeImports: [],
+  };
+}
